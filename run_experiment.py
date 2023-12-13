@@ -27,13 +27,10 @@ def IPF(mu, N, fi, fj):
     r = np.ones((np.shape(mu)[0], np.shape(mu)[1]))
     epsilon = 1
     while epsilon > 0.001:
-        r_int1 = np.copy(r)
-        for j in range(0, np.shape(mu)[1]):
-            r[:, j] = r_int1[:, j] * fj[j] * N / np.sum(r_int1 * mu, 0)[j]
-        r_int2 = np.copy(r)
-        for i in range(0, np.shape(mu)[0]):
-            r[i, :] = r_int2[i, :] * fi[i] * N / np.sum(r_int2 * mu, 1)[i]
-        epsilon = np.mean(np.abs((r_int1 - r) / r_int1))
+        r_old = np.copy(r)
+        r = r * fj * N / np.sum(r * mu, 0)
+        r = np.transpose(np.transpose(r) * fi * N / np.sum(r * mu, 1))
+        epsilon = np.mean(np.abs((r_old - r) / r_old))
     return r
 
 if __name__ == "__main__":
