@@ -94,22 +94,20 @@ def create_experiment():
 def transform_to_pandas(x, mu_i, mu_j, mu):
     """
     """
-    causes = np.repeat(np.array(['cause1', 'cause2', 'cause3', 'cause4', 'cause5']).reshape((5, 1)), 4, axis=1)
-    counties = np.repeat(np.array(['county1', 'county2', 'county3', 'county4']).reshape((1, 4)), 5, axis=0)
+    cause = np.repeat(np.array(['cause1', 'cause2', 'cause3', 'cause4', 'cause5']).reshape((5, 1)), 4, axis=1)
+    cause_value = np.repeat(mu_i.reshape((5, 1)), 4, axis=1)
+    county = np.repeat(np.array(['county1', 'county2', 'county3', 'county4']).reshape((1, 4)), 5, axis=0)
+    county_value = np.repeat(mu_j.reshape((1, 4)), 5, axis=0)
     df_x = pd.DataFrame({'value': x.reshape((-1, 1)).reshape(-1),
-                         'cause': causes.reshape((-1, 1)).reshape(-1),
-                         'county': counties.reshape((-1, 1)).reshape(-1)})
+                         'cause': cause.reshape((-1, 1)).reshape(-1),
+                         'cause_value': cause_value.reshape((-1, 1)).reshape(-1),
+                         'county': county.reshape((-1, 1)).reshape(-1),
+                         'county_value': county_value.reshape((-1, 1)).reshape(-1)})
     df_mu = pd.DataFrame({'value': mu.reshape((-1, 1)).reshape(-1),
-                          'cause': causes.reshape((-1, 1)).reshape(-1),
-                          'county': counties.reshape((-1, 1)).reshape(-1)})
-    df_mu_i = pd.DataFrame({'value': mu_i,
-                            'cause': np.array(['cause1', 'cause2', 'cause3', 'cause4', 'cause5']),
-                            'county': np.nan})
-    df_mu_j = pd.DataFrame({'value': mu_j,
-                            'cause': np.nan,
-                            'county': np.array(['county1', 'county2', 'county3', 'county4'])})
-    df_x = pd.concat([df_x, df_mu_i, df_mu_j]).reset_index()
-    df_mu = pd.concat([df_mu, df_mu_i, df_mu_j]).reset_index()
+                          'cause': cause.reshape((-1, 1)).reshape(-1),
+                          'cause_value': cause_value.reshape((-1, 1)).reshape(-1),
+                          'county': county.reshape((-1, 1)).reshape(-1),
+                          'county_value': county_value.reshape((-1, 1)).reshape(-1)})
     return (df_x, df_mu)
 
 if __name__ == "__main__":
