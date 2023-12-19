@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 def IPF(x, mu_i, mu_j):
     """
@@ -41,8 +42,11 @@ def IPF(x, mu_i, mu_j):
     mu = alpha * x
     return (mu, diffs)
 
-if __name__ == "__main__":
-
+def create_experiment():
+    """
+    Function to test the IPF algorithm.
+    Returns initial values and raked values.
+    """
     # Set seed for reproducibility
     np.random.seed(0)
 
@@ -55,7 +59,7 @@ if __name__ == "__main__":
     mu_j = np.random.uniform(0.2, 0.3, m)
     mu_j = mu_j / np.sum(mu_j)
 
-    # rake matrix using IPF algorithm
+    # Rake matrix using IPF algorithm
     (mu, diffs) = IPF(x, mu_i, mu_j)
 
     # Print results to show that it works
@@ -83,4 +87,35 @@ if __name__ == "__main__":
     plt.title('Convergence of IPF algorithm', fontsize=20)
     plt.tight_layout()
     plt.savefig('IPF_convergence.png')
+
+    # Return values for analysis
+    return (x, mu_i, mu_j, mu)
+
+def transform_to_pandas(x, mu_i, mu_j, mu):
+    """
+    """
+    causes = np.repeat(np.array(['cause1', 'cause2', 'cause3', 'cause4', 'cause5']).reshape((5, 1)), 4, axis=1)
+    counties = np.repeat(np.array(['county1', 'county2', 'county3', 'county4']).reshape((1, 4)), 5, axis=0)
+    df_x = pd.DataFrame({'value': x.reshape((-1, 1)).reshape(-1),
+                         'cause': causes.reshape((-1, 1)).reshape(-1),
+                         'county': counties.reshape((-1, 1)).reshape(-1)})
+    df_mu = pd.DataFrame({'value': mu.reshape((-1, 1)).reshape(-1),
+                          'cause': causes.reshape((-1, 1)).reshape(-1),
+                          'county': counties.reshape((-1, 1)).reshape(-1)})
+    df_mu_i = pd.DataFrame({'value': mu_i,
+                            'cause': np.array(['cause1', 'cause2', 'cause3', 'cause4', 'cause5']),
+                            'county': np.nan})
+    df_mu_j = pd.DataFrame({'value': mu_j,
+                            'cause': np.nan,
+                            'county': np.array(['county1', 'county2', 'county3', 'county4'])})
+    df_x = pd.concat([df_x, df_mu_i, df_mu_j]).reset_index()
+    df_mu = pd.concat([df_mu, df_mu_i, df_mu_j]).reset_index()
+    return (df_x, df_mu)
+
+if __name__ == "__main__":
+
+    (x, mu_i, mu_j, mu) = create_experiment()
+    (df_x, df_mu) = transform_to_pandas(x, mu_i, mu_j, mu)
+    df_x.to_csv('initial_values.csv')
+    df_mu.to_csv('raked_values.csv')
 
