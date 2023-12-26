@@ -1,0 +1,17 @@
+name: raking_IPF
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - altair
+  - jupyter
+  - matplotlib
+  - notebook
+  - numpy
+  - pandas
+  - pytorch
+  - scipy
+  - torchvision
+
+
