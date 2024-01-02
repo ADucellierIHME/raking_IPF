@@ -121,7 +121,7 @@ def create_experiment(n, m, plot=True):
     np.random.seed(n * m)
 
     # Choose values for x, mu_i, mu_j
-    x = np.random.uniform(0.8 / (n * m), 1.2 / (n * m), m * n).reshape((n, m))
+    x = np.random.uniform(0.01 / (n * m), 1.99 / (n * m), m * n).reshape((n, m))
     mu_i = np.random.uniform(0.75 / n, 1.25 / n, n)
     mu_i = mu_i / np.sum(mu_i)
     mu_j = np.random.uniform(0.75 / m, 1.25 / m, m)
@@ -169,7 +169,7 @@ def create_experiment_torch(n, m, plot=True):
     np.random.seed(n * m)
 
     # Choose values for x, mu_i, mu_j
-    x = np.random.uniform(0.8 / (n * m), 1.2 / (n * m), m * n).reshape((n, m))
+    x = np.random.uniform(0.01 / (n * m), 1.99 / (n * m), m * n).reshape((n, m))
     mu_i = np.random.uniform(0.75 / n, 1.25 / n, n)
     mu_i = mu_i / np.sum(mu_i)
     mu_j = np.random.uniform(0.75 / m, 1.25 / m, m)
