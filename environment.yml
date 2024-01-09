@@ -9,6 +9,7 @@ dependencies:
   - matplotlib
   - notebook
   - numpy
+  - openpyxl
   - pandas
   - pytorch
   - scipy

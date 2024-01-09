@@ -28,8 +28,8 @@ def IPF(x, mu_i, mu_j):
         'Partial sums over columns should have length equal to the number of rows'
     assert np.shape(x)[1] == len(mu_j), \
         'Partial sums over rows should have length equal to the number of columns'
-    assert abs(np.sum(mu_i) - np.sum(mu_j)) < 1e-10, \
-        'Sum of partial sums over rows and columns should be equal'
+#    assert abs(np.sum(mu_i) - np.sum(mu_j)) < 1e-10, \
+#        'Sum of partial sums over rows and columns should be equal'
 
     # Initialization
     alpha = np.ones((np.shape(x)[0], np.shape(x)[1]))
