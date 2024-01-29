@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from raking_methods import get_margin_matrix_vector, raking_chi2_distance
+from raking_methods import get_margin_matrix_vector, raking_chi2_distance, raking_general_distance
 from run_experiment import IPF
 
 # Read dataset
@@ -41,31 +41,49 @@ x_raked = np.reshape(x_raked, (I * J, 1), order='F')
 # Divide by population to get prevalence
 df['raked_IPF'] = x_raked[:, 0] / df['pop']
 
-# Rake using chi-square distance
+# Choose values for alpha
+alphas = [1, -0.5, -1, -2]
+
+# Define names of raking methods
+names = ['alpha = 1',
+#         'alpha = 0',
+         'alpha = -1/2',
+         'alpha = -1',
+         'alpha = -2']
+
+# Rake using different distances
 (A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
-mu = raking_chi2_distance(x, q, A, y)
+mu = np.zeros((len(x), len(alphas)))
+for index, alpha in enumerate(alphas):
+    print('alpha = ', alpha)
+    mu[:, index] = raking_general_distance(alpha, x, q, A, y)
 
 # Divide by population to get prevalence
-df['raked_chi2'] = mu / df['pop']
+for index, name in enumerate(names):
+    df[name] = mu[:, index] / df['pop']
 
 # Check if the raked values add up to the margin for each race
-for race in df['race'].unique().tolist():
-    df_sub = df.loc[df['race'] == race]
-    print('race ', race, ' - difference = ', \
-        abs(np.sum(df_sub['raked_chi2'].to_numpy())- \
-        df_sub['parent_value'].iloc[0]))
+#for race in df['race'].unique().tolist():
+#    df_sub = df.loc[df['race'] == race]
+#    print('race ', race, ' - difference = ', \
+#        abs(np.sum(df_sub['raked_general'].to_numpy())- \
+#        df_sub['parent_value'].iloc[0]))
 
 # Check if the raked values add up to the margin for each cause
-for cause in df['acause'].unique().tolist():
-    df_sub = df.loc[df['acause'] == cause]
-    print('cause ', cause, ' - difference = ', \
-        abs(np.sum(df_sub['raked_chi2'].to_numpy() * \
-        df_sub['pop'].to_numpy()) - df_sub['total_mcnty_value'].iloc[0]))
+#for cause in df['acause'].unique().tolist():
+#    df_sub = df.loc[df['acause'] == cause]
+#    print('cause ', cause, ' - difference = ', \
+#        abs(np.sum(df_sub['raked_general'].to_numpy() * \
+#        df_sub['pop'].to_numpy()) - df_sub['total_mcnty_value'].iloc[0]))
 
 # Plot
 plt.figure(figsize=(12, 6))
-plt.plot(np.arange(0, I * J), df['raked_IPF'].to_numpy(), 'bo', label='IPF')
-plt.plot(np.arange(0, I * J), df['raked_chi2'].to_numpy(), 'ro', label='Chi-square with weights')
+plt.scatter(np.arange(0, I * J), df['raked_IPF'].to_numpy(), color='black', marker='o', label='IPF')
+plt.scatter(np.arange(0, I * J), df['alpha = 1'].to_numpy(), color='blue', marker='o', label='alpha = 1')
+#plt.scatter(np.arange(0, I * J), df['alpha = 0'].to_numpy(), color='green', marker='o', label='alpha = 0')
+plt.scatter(np.arange(0, I * J), df['alpha = -1/2'].to_numpy(), color='yellow', marker='o', label='alpha = -1/2')
+plt.scatter(np.arange(0, I * J), df['alpha = -1'].to_numpy(), color='orange', marker='o', label='alpha = -1')
+plt.scatter(np.arange(0, I * J), df['alpha = -2'].to_numpy(), color='red', marker='o', label='alpha = -2')
 ticks = np.arange(0, I * J).tolist()
 tick_labels_race = []
 before = int((I - 1) / 2)
