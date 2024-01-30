@@ -42,11 +42,11 @@ x_raked = np.reshape(x_raked, (I * J, 1), order='F')
 df['raked_IPF'] = x_raked[:, 0] / df['pop']
 
 # Choose values for alpha
-alphas = [1, -0.5, -1, -2]
+alphas = [1, 0, -1/2, -1, -2]
 
 # Define names of raking methods
 names = ['alpha = 1',
-#         'alpha = 0',
+         'alpha = 0',
          'alpha = -1/2',
          'alpha = -1',
          'alpha = -2']
@@ -55,7 +55,6 @@ names = ['alpha = 1',
 (A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
 mu = np.zeros((len(x), len(alphas)))
 for index, alpha in enumerate(alphas):
-    print('alpha = ', alpha)
     mu[:, index] = raking_general_distance(alpha, x, q, A, y)
 
 # Divide by population to get prevalence
@@ -80,7 +79,7 @@ for index, name in enumerate(names):
 plt.figure(figsize=(12, 6))
 plt.scatter(np.arange(0, I * J), df['raked_IPF'].to_numpy(), color='black', marker='o', label='IPF')
 plt.scatter(np.arange(0, I * J), df['alpha = 1'].to_numpy(), color='blue', marker='o', label='alpha = 1')
-#plt.scatter(np.arange(0, I * J), df['alpha = 0'].to_numpy(), color='green', marker='o', label='alpha = 0')
+plt.scatter(np.arange(0, I * J), df['alpha = 0'].to_numpy(), color='green', marker='o', label='alpha = 0')
 plt.scatter(np.arange(0, I * J), df['alpha = -1/2'].to_numpy(), color='yellow', marker='o', label='alpha = -1/2')
 plt.scatter(np.arange(0, I * J), df['alpha = -1'].to_numpy(), color='orange', marker='o', label='alpha = -1')
 plt.scatter(np.arange(0, I * J), df['alpha = -2'].to_numpy(), color='red', marker='o', label='alpha = -2')

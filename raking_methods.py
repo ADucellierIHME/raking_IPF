@@ -119,10 +119,10 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500):
         iter_eps = 0
         while (epsilon > 1.0e-5) & (iter_eps < max_iter):
             if alpha == 0:
-                Phi = np.matmul(A, x * (1 - np.exp(q * \
-                np.matmul(np.transpose(A), lambda_k))))
-                D = np.diag(x * q * np.exp(1 - q * \
-                np.matmul(np.transpose(A), lambda_k)))
+                Phi = np.matmul(A, x * (1 - np.exp(- q * \
+                    np.matmul(np.transpose(A), lambda_k))))
+                D = np.diag(x * q * np.exp(- q * \
+                    np.matmul(np.transpose(A), lambda_k)))
             else:
                 Phi = np.matmul(A, x * (1 - np.power(1 - alpha * q * \
                     np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)))
@@ -154,7 +154,7 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500):
             lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
             iter_eps = iter_eps + 1
         if alpha == 0:
-            mu = x * np.exp(q * np.matmul(np.transpose(A), lambda_k))
+            mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
         else:
             mu = x * np.power(1 - alpha * q * \
                 np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
