@@ -160,3 +160,70 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500):
                 np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
     return mu
 
+def logit_raking(x, l, h, q, A, y, max_iter=500):
+    """
+    Logit raking ensuring that l < mu < h
+    Input:
+      x: 1D Numpy array, observed values x_n = x_i,j if n = j I + i
+      l: 1D Numpy array, lower bound for the observations
+      h: 1D Numpy array, upper bound for the observations
+      q: 1D Numpy array, weights for the observations
+      A: 2D Numpy array, linear constraints
+      y: 1D Numpy array, partial sums
+      max_iter: Integer, number of iterations for Newton's root finding method
+    Output:
+      mu: 1D Numpy array, raked values
+    """
+    assert isinstance(x, np.ndarray), \
+        'Observations should be a Numpy array.'
+    assert isinstance(l, np.ndarray), \
+        'Lower bounds should be a Numpy array.'
+    assert isinstance(h, np.ndarray), \
+        'Upper bounds should be a Numpy array.'
+    assert isinstance(q, np.ndarray), \
+        'Weights should be a Numpy array.'
+    assert len(x) == len(l), \
+        'Observations and lower bounds arrays should have the same size.'
+    assert len(x) == len(h), \
+        'Observations and upper bounds arrays should have the same size.'
+    assert len(x) == len(q), \
+        'Observations and weights arrays should have the same size.'
+    assert isinstance(A, np.ndarray), \
+        'Linear constraints should be a Numpy array.'
+    assert isinstance(y, np.ndarray), \
+        'Partial sums should be a Numpy array.'
+    assert np.shape(A)[0] == len(y), \
+        'The number of linear constraints should be equal to the number of partial sums.'
+    assert np.shape(A)[1] == len(x), \
+        'The number of coefficients for the linear constraints should be equal to the number of observations.'
+
+    lambda_k = np.zeros(np.shape(A)[0])
+    epsilon = 1
+    iter_eps = 0
+    while (epsilon > 1.0e-5) & (iter_eps < max_iter):
+        Phi = np.matmul(A, (l * (h - x) + h * (x - l) * \
+            np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
+            ((h - x) + (x - l) * \
+             np.exp(- q * np.matmul(np.transpose(A), lambda_k))))
+        D = np.diag(- q * ((x - l) * (h - x) * (h - l)) / \
+            np.square((h - x) + (x - l) * \
+            np.exp(- q * np.matmul(np.transpose(A), lambda_k))))    
+        J = np.matmul(np.matmul(A, D), np.transpose(A))
+        # Compute Moore-Penrose pseudo inverse to solve the system
+        svd = np.linalg.svd(J)
+        U = svd.U
+        V = np.transpose(svd.Vh)
+        S = np.diag(svd.S)
+        Sinv = 1.0 / svd.S
+        Sinv[np.abs(svd.S) < 1.0e-10] = 0.0
+        Sinv = np.diag(Sinv)
+        J_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        epsilon = np.sum(np.abs(np.matmul(J_plus, Phi - y)))
+        lambda_k = lambda_k - np.matmul(J_plus, Phi - y)
+        iter_eps = iter_eps + 1
+    mu = (l * (h - x) + h * (x - l) * \
+        np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
+        ((h - x) + (x - l) * \
+        np.exp(- q * np.matmul(np.transpose(A), lambda_k)))
+    return mu
+
