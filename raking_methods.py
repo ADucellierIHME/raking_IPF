@@ -4,8 +4,6 @@ This module implements the raking methods in the k-dimensional case
 
 import numpy as np
 
-from scipy.linalg import solve
-
 def get_margin_matrix_vector(v_i, v_j, mu_i, mu_j):
     """
     In 2D, transform the I + J conditions on the margins
@@ -160,7 +158,48 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500):
                 np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
     return mu
 
-def logit_raking(x, l, h, q, A, y, max_iter=500):
+def raking_l2_distance(x, q, A, y):
+    """
+    Raking using the l2 distance (mu - x)^2 / 2.
+    Input:
+      x: 1D Numpy array, observed values x_n = x_i,j if n = j I + i
+      q: 1D Numpy array, weights for the observations
+      A: 2D Numpy array, linear constraints
+      y: 1D Numpy array, partial sums
+    Output:
+      mu: 1D Numpy array, raked values
+    """
+    assert isinstance(x, np.ndarray), \
+        'Observations should be a Numpy array.'
+    assert isinstance(q, np.ndarray), \
+        'Weights should be a Numpy array.'
+    assert len(x) == len(q), \
+        'Observations and weights arrays should have the same size.'
+    assert isinstance(A, np.ndarray), \
+        'Linear constraints should be a Numpy array.'
+    assert isinstance(y, np.ndarray), \
+        'Partial sums should be a Numpy array.'
+    assert np.shape(A)[0] == len(y), \
+        'The number of linear constraints should be equal to the number of partial sums.'
+    assert np.shape(A)[1] == len(x), \
+        'The number of coefficients for the linear constraints should be equal to the number of observations.'
+
+    y_hat = np.matmul(A, x)
+    Phi = np.matmul(A, np.transpose(q * A))
+    # Compute Moore-Penrose pseudo inverse to solve the system
+    svd = np.linalg.svd(Phi)
+    U = svd.U
+    V = np.transpose(svd.Vh)
+    S = np.diag(svd.S)
+    Sinv = 1.0 / svd.S
+    Sinv[np.abs(svd.S) < 1.0e-10] = 0.0
+    Sinv = np.diag(Sinv)
+    Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+    lambda_k = np.matmul(Phi_plus, y_hat - y)
+    mu = x - np.matmul(np.transpose(q * A), lambda_k)
+    return mu
+
+def raking_logit(x, l, h, q, A, y, max_iter=500):
     """
     Logit raking ensuring that l < mu < h
     Input:
