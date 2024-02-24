@@ -30,8 +30,8 @@ v_j = np.ones(I)
 
 # Prepare data and weights for the raking
 x = df['total_value'].to_numpy()
-q = np.ones(len(x))
-#q = 1.0 / x
+#q = np.ones(len(x))
+q = 1.0 / x
 
 # Raking using IPF
 x_raked = np.reshape(df['total_value'].to_numpy(), (I, J), order='F')
@@ -49,7 +49,7 @@ mu = raking_logit(x, l, h, q, A, y)
 df['logit'] = mu / df['pop']
 
 # Rake using l2 distance
-mu = raking_l2_distance(x, l, h, q, A, y)
+mu = raking_l2_distance(x, q, A, y)
 df['l2_distance'] = mu / df['pop']
 
 # Choose values for alpha
@@ -68,18 +68,18 @@ for alpha, name in zip(alphas, names):
     df[name] = mu / df['pop']
 
 # Check if the raked values add up to the margin for each race
-#for race in df['race'].unique().tolist():
-#    df_sub = df.loc[df['race'] == race]
-#    print('race ', race, ' - difference = ', \
-#        abs(np.sum(df_sub['l2_distance'].to_numpy())- \
-#        df_sub['parent_value'].iloc[0]))
+for race in df['race'].unique().tolist():
+    df_sub = df.loc[df['race'] == race]
+    print('race ', race, ' - difference = ', \
+        abs(np.sum(df_sub['l2_distance'].to_numpy())- \
+        df_sub['parent_value'].iloc[0]))
 
 # Check if the raked values add up to the margin for each cause
-#for cause in df['acause'].unique().tolist():
-#    df_sub = df.loc[df['acause'] == cause]
-#    print('cause ', cause, ' - difference = ', \
-#        abs(np.sum(df_sub['l2_distance'].to_numpy() * \
-#        df_sub['pop'].to_numpy()) - df_sub['total_mcnty_value'].iloc[0]))
+for cause in df['acause'].unique().tolist():
+    df_sub = df.loc[df['acause'] == cause]
+    print('cause ', cause, ' - difference = ', \
+        abs(np.sum(df_sub['l2_distance'].to_numpy() * \
+        df_sub['pop'].to_numpy()) - df_sub['total_mcnty_value'].iloc[0]))
 
 # Plot
 plt.figure(figsize=(12, 6))
@@ -115,7 +115,7 @@ plt.yticks(fontsize=16)
 plt.title('Comparison of raked observations with different distances', fontsize=24)
 plt.xlabel('Cause and race', fontsize=20)
 plt.ylabel('Mortality rate', fontsize=20)
-plt.legend(fontsize=16, frameon=False)
+plt.legend(fontsize=16, frameon=False, loc='upper right')
 plt.tight_layout()
 plt.savefig('compare_distances.png')
 
