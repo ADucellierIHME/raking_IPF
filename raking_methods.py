@@ -3,6 +3,9 @@ This module implements the raking methods in the k-dimensional case
 """
 
 import numpy as np
+import pandas as pd
+
+from math import floor
 
 def get_margin_matrix_vector(v_i, v_j, mu_i, mu_j):
     """
@@ -198,6 +201,84 @@ def raking_l2_distance(x, q, A, y):
     lambda_k = np.matmul(Phi_plus, y_hat - y)
     mu = x - np.matmul(np.transpose(q * A), lambda_k)
     return mu
+
+def raking_vectorized_l2_distance(df, agg_vars, constant_vars=[]):
+    """
+    Raking using the l2 distance (mu - x)^2 / 2.
+    Input:
+      df: Pandas dataframe, containing the columns:
+          - value = Values to be raked
+          - agg_var = Variables over which we want to rake.
+          - constant_vars = Several other variables (not to be raked).
+          - all_'agg_var'_value = Partial sums
+      agg_vars: List of strings, variables over which we do the raking
+      constant_vars: List of strings, several other variables (not to be raked).
+    Output:
+      df: Pandas dataframe with another additional column value_raked
+    """
+    assert 'value' in df.columns, \
+        'The dataframe should contain a column with the values to be raked.'
+    assert len(agg_vars)== 2, \
+        'Currently, raking can only be done over two variables.'
+    for agg_var in agg_vars:
+        assert agg_var in df.columns, \
+            'The dataframe should contain a column ' + agg_var + '.'
+        assert 'all_' + agg_var + '_value' in df.columns, \
+            'The dataframe should contain a column with the margins for' + agg_var + '.' 
+    if len(constant_vars) > 0:
+        for var in constant_vars:
+            assert var in df.columns, \
+                'The dataframe should contain a column ' + var + '.'
+
+    # Get values to be raked
+    df.sort_values(by=constant_vars + agg_vars, inplace=True)
+    x = df.value.to_numpy()
+
+    # Get margins
+    name0 = 'all_' + agg_vars[0] + '_value'
+    name1 = 'all_' + agg_vars[1] + '_value'
+    mu_i = df.groupby(constant_vars + [agg_vars[1]]).agg({name0: np.mean}).reset_index()
+    mu_j = df.groupby(constant_vars + [agg_vars[0]]).agg({name1: np.mean}).reset_index()
+    y = pd.concat([mu_i.drop(columns=[agg_vars[1]]).rename(columns={name0: 'value'}), \
+                   mu_j.drop(columns=[agg_vars[0]]).rename(columns={name1: 'value'})])
+    y.sort_values(by=constant_vars, inplace=True)
+    y = y.value.to_numpy()
+
+    # Get linear constraints
+    I = len(df[agg_vars[1]].unique())
+    J = len(df[agg_vars[0]].unique())
+    A = np.zeros((I + J, I * J))
+    for i in range(0, I):
+        for j in range(0, J):
+            A[i, j * I + i] = 1
+            A[I + j, j * I + i] = 1
+
+    # Compute Moore-Penrose pseudo inverse to solve the system
+    Phi = np.matmul(A, np.transpose(A))
+    svd = np.linalg.svd(Phi)
+    U = svd.U
+    V = np.transpose(svd.Vh)
+    S = np.diag(svd.S)
+    Sinv = 1.0 / svd.S
+    Sinv[np.abs(svd.S) < 1.0e-10] = 0.0
+    Sinv = np.diag(Sinv)
+    Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+    Phi_1 = np.eye(I * J) - np.matmul(np.matmul(np.transpose(A), Phi_plus), A)
+    Phi_2 = np.matmul(np.transpose(A), Phi_plus)
+
+    # Aggregate and compute raked values
+    N1 = int(floor(len(x) / (I * J)))
+    N2 = int(floor(len(y) / (I + J)))
+    assert N1 == N2, \
+        'Inconsistency between number of values to be raked and number of marginal totals.'
+    Phi_1_big = np.zeros((N1 * I * J, N1 * I * J))
+    Phi_2_big = np.zeros((N1 * I * J, N1 * (I + J)))
+    for n in range(0, N1):
+        Phi_1_big[n * I * J : (n + 1) * I * J, n * I * J : (n + 1) * I * J] = Phi_1
+        Phi_2_big[n * I * J : (n + 1) * I * J, n * (I + J) : (n + 1) * (I + J)] = Phi_2
+    mu = np.matmul(Phi_1_big, x) + np.matmul(Phi_2_big, y)
+    df['value_raked'] = mu
+    return df
 
 def raking_logit(x, l, h, q, A, y, max_iter=500):
     """
