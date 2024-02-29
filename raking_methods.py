@@ -7,6 +7,47 @@ import pandas as pd
 
 from math import floor
 
+def raking_vectorized_IPF(df, agg_vars, constant_vars=[]):
+    """
+    Raking using the l2 distance (mu - x)^2 / 2.
+    Input:
+      df: Pandas dataframe, containing the columns:
+          - value = Values to be raked
+          - agg_var = Variables over which we want to rake.
+          - constant_vars = Several other variables (not to be raked).
+          - all_'agg_var'_value = Partial sums
+      agg_vars: List of strings, variables over which we do the raking
+      constant_vars: List of strings, several other variables (not to be raked).
+    Output:
+      df: Pandas dataframe with another additional column value_raked
+    """
+    assert 'value' in df.columns, \
+        'The dataframe should contain a column with the values to be raked.'
+    assert len(agg_vars)== 2, \
+        'Currently, raking can only be done over two variables.'
+    for agg_var in agg_vars:
+        assert agg_var in df.columns, \
+            'The dataframe should contain a column ' + agg_var + '.'
+        assert 'all_' + agg_var + '_value' in df.columns, \
+            'The dataframe should contain a column with the margins for' + agg_var + '.' 
+    if len(constant_vars) > 0:
+        for var in constant_vars:
+            assert var in df.columns, \
+                'The dataframe should contain a column ' + var + '.'
+
+    df['value_raked'] = df['value']
+    df.sort_values(by=constant_vars + agg_vars, inplace=True)
+    epsilon = 1.0
+    while epsilon > 1.0e-10:
+        df['sum_value_raked'] = df.groupby(constant_vars + [agg_vars[1]])['value_raked'].transform('sum')
+        df['value_raked'] = df['value_raked'] * df['all_' + agg_vars[0] + '_value'] / df['sum_value_raked']
+        sum0 = np.sum(np.abs(df['all_' + agg_vars[0] + '_value'].to_numpy() - df['sum_value_raked'].to_numpy()))
+        df['sum_value_raked'] = df.groupby(constant_vars + [agg_vars[0]])['value_raked'].transform('sum')
+        df['value_raked'] = df['value_raked'] * df['all_' + agg_vars[1] + '_value'] / df['sum_value_raked']
+        sum1 = np.sum(np.abs(df['all_' + agg_vars[1] + '_value'].to_numpy() - df['sum_value_raked'].to_numpy()))
+        epsilon = sum0 + sum1
+    return df
+
 def get_margin_matrix_vector(v_i, v_j, mu_i, mu_j):
     """
     In 2D, transform the I + J conditions on the margins

@@ -7,6 +7,7 @@ import pandas as pd
 
 from raking_methods import get_margin_matrix_vector
 from raking_methods import raking_l2_distance, raking_vectorized_l2_distance
+from raking_methods import raking_general_distance, raking_vectorized_IPF
 
 pd.options.mode.chained_assignment = None
 
@@ -44,21 +45,24 @@ agg_vars = ['race', 'cause']
 # Test l2 distance
 # For each year, rake by race and cause using initial function
 years = df['year'].unique().tolist()
+ages = df['age'].unique().tolist()
 df_raked = []
 for year in years:
-    df_sub = df.loc[df['year'] == year]
-    I = len(df_sub['cause'].unique())
-    J = len(df_sub['race'].unique())
-    mu_i = df_sub['all_race_value'].unique()
-    mu_j = df_sub['all_cause_value'].unique()
-    v_i = np.ones(J)
-    v_j = np.ones(I)
-    x = df_sub['value'].to_numpy()
-    q = np.ones(len(x))
-    (A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
-    mu = raking_l2_distance(x, q, A, y)
-    df_sub['value_raked'] = mu
-    df_raked.append(df_sub)
+    for age in ages:
+        df_sub = df.loc[(df['year'] == year) & (df['age'] == age)]
+        if len(df_sub) > 0:
+            I = len(df_sub['cause'].unique())
+            J = len(df_sub['race'].unique())
+            mu_i = df_sub['all_race_value'].unique()
+            mu_j = df_sub['all_cause_value'].unique()
+            v_i = np.ones(J)
+            v_j = np.ones(I)
+            x = df_sub['value'].to_numpy()
+            q = np.ones(len(x))
+            (A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+            mu = raking_l2_distance(x, q, A, y)
+            df_sub['value_raked'] = mu
+            df_raked.append(df_sub)
 df_raked = pd.concat(df_raked)
 df_raked.sort_values(by=constant_vars + agg_vars, inplace=True)
 
@@ -68,4 +72,36 @@ df_raked_vector.sort_values(by=constant_vars + agg_vars, inplace=True)
 
 # Compare values between two raking methods
 print('L2 distance, rake by race and cause, diff = ', \
+    np.sum(np.abs(df_raked['value_raked'].to_numpy() - df_raked_vector['value_raked'].to_numpy())))
+
+# Test entropic distance
+# For each year, rake by race and cause using initial function
+years = df['year'].unique().tolist()
+ages = df['age'].unique().tolist()
+df_raked = []
+for year in years:
+    for age in ages:
+        df_sub = df.loc[(df['year'] == year) & (df['age'] == age)]
+        if len(df_sub) > 0:
+            I = len(df_sub['cause'].unique())
+            J = len(df_sub['race'].unique())
+            mu_i = df_sub['all_race_value'].unique()
+            mu_j = df_sub['all_cause_value'].unique()
+            v_i = np.ones(J)
+            v_j = np.ones(I)
+            x = df_sub['value'].to_numpy()
+            q = np.ones(len(x))
+            (A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+            mu = raking_general_distance(0, x, q, A, y)
+            df_sub['value_raked'] = mu
+            df_raked.append(df_sub)
+df_raked = pd.concat(df_raked)
+df_raked.sort_values(by=constant_vars + agg_vars, inplace=True)
+
+# Rake by race and cause using vectorized function
+df_raked_vector = raking_vectorized_IPF(df, agg_vars, constant_vars)
+df_raked_vector.sort_values(by=constant_vars + agg_vars, inplace=True)
+
+# Compare values between two raking methods
+print('Entropic distance, rake by race and cause, diff = ', \
     np.sum(np.abs(df_raked['value_raked'].to_numpy() - df_raked_vector['value_raked'].to_numpy())))
