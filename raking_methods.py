@@ -174,6 +174,8 @@ def raking_chi2_distance(x, q, A, y, direct=True):
       q: 1D Numpy array, weights for the observations
       A: 2D Numpy array, linear constraints
       y: 1D Numpy array, partial sums
+      direct: boolean, if True, we solve for lambda and compute mu;
+          if False, we solve directly for lambda and mu
     Output:
       mu: 1D Numpy array, raked values
     """
@@ -372,7 +374,7 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500, return_num_iter=Fal
     else:
         return mu
 
-def raking_l2_distance(x, q, A, y):
+def raking_l2_distance(x, q, A, y, direct=True):
     """
     Raking using the l2 distance (mu - x)^2 / 2.
     Input:
@@ -380,6 +382,8 @@ def raking_l2_distance(x, q, A, y):
       q: 1D Numpy array, weights for the observations
       A: 2D Numpy array, linear constraints
       y: 1D Numpy array, partial sums
+      direct: boolean, if True, we solve for lambda and compute mu;
+          if False, we solve directly for lambda and mu
     Output:
       mu: 1D Numpy array, raked values
     """
@@ -398,20 +402,38 @@ def raking_l2_distance(x, q, A, y):
     assert np.shape(A)[1] == len(x), \
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
-    y_hat = np.matmul(A, x)
-    Phi = np.matmul(A, np.transpose(q * A))
-    # Compute Moore-Penrose pseudo inverse to solve the system
-    U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
-    V = np.transpose(Vh)
-    # Invert diagonal matrix while dealing with 0 and near 0 values
-    S[np.abs(S) <= 1.0e-10] = 1.0e-10
-    Sinv = 1.0 / S
-    Sinv[np.abs(S) <= 1.0e-10] = 0.0
-    Sinv = np.diag(Sinv)
-    Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
-    lambda_k = np.matmul(Phi_plus, y_hat - y)
-    mu = x - np.matmul(np.transpose(q * A), lambda_k)
-    return mu
+    if direct:
+        y_hat = np.matmul(A, x)
+        Phi = np.matmul(A, np.transpose(q * A))
+        # Compute Moore-Penrose pseudo inverse to solve the system
+        U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
+        V = np.transpose(Vh)
+        # Invert diagonal matrix while dealing with 0 and near 0 values
+        S[np.abs(S) <= 1.0e-10] = 1.0e-10
+        Sinv = 1.0 / S
+        Sinv[np.abs(S) <= 1.0e-10] = 0.0
+        Sinv = np.diag(Sinv)
+        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        lambda_k = np.matmul(Phi_plus, y_hat - y)
+        mu = x - np.matmul(np.transpose(q * A), lambda_k)
+    else:
+        Phi = np.concatenate((np.concatenate((np.diag(1.0 / q), \
+            np.transpose(A)), axis=1), \
+            np.concatenate((A, np.zeros((len(y), len(y)))), axis=1)), axis=0)
+        b = np.concatenate((x / q, y), axis=0)
+        # Compute Moore-Penrose pseudo inverse to solve the system
+        U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
+        V = np.transpose(Vh)
+        # Invert diagonal matrix while dealing with 0 and near 0 values
+        S[np.abs(S) <= 1.0e-10] = 1.0e-10
+        Sinv = 1.0 / S
+        Sinv[np.abs(S) <= 1.0e-10] = 0.0
+        Sinv = np.diag(Sinv)
+        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        result = np.matmul(Phi_plus, b)
+        mu = result[0:len(x)]
+        lambda_k = result[len(x):(len(x) + len(y))]
+    return (mu, lambda_k)
 
 def raking_vectorized_l2_distance(df, agg_vars, constant_vars=[]):
     """
