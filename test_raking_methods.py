@@ -49,3 +49,23 @@ q = np.ones(len(x))
 print('Chi2 distance, diff mu = ', np.sum(np.abs(result_direct - result_full)))
 print('Chi2 distance, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
 
+# Test l2 distance
+# ------------------
+
+# Rake by race and cause using both functions
+I = len(df['cause'].unique())
+J = len(df['race'].unique())
+mu_i = df['all_race_value'].unique()
+mu_j = df['all_cause_value'].unique()
+v_i = np.ones(J)
+v_j = np.ones(I)
+x = df['value'].to_numpy()
+q = np.ones(len(x))
+(A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+(result_direct, lambda_direct) = raking_l2_distance(x, q, A, y, True)
+(result_full, lambda_full) = raking_l2_distance(x, q, A, y, False)
+
+# Compare values between two raking methods
+print('L2 distance, diff mu = ', np.sum(np.abs(result_direct - result_full)))
+print('L2 distance, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
+
