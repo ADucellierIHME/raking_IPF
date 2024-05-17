@@ -69,3 +69,65 @@ q = np.ones(len(x))
 print('L2 distance, diff mu = ', np.sum(np.abs(result_direct - result_full)))
 print('L2 distance, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
 
+# Test entropic distance
+# ------------------
+
+# Rake by race and cause using both functions
+I = len(df['cause'].unique())
+J = len(df['race'].unique())
+mu_i = df['all_race_value'].unique()
+mu_j = df['all_cause_value'].unique()
+v_i = np.ones(J)
+v_j = np.ones(I)
+x = df['value'].to_numpy()
+q = np.ones(len(x))
+(A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+(result_direct, lambda_direct) = raking_entropic_distance(x, q, A, y, 1.0, 500, False, True)
+(result_full, lambda_full) = raking_entropic_distance(x, q, A, y, 1.0, 500, False, False)
+
+# Compare values between two raking methods
+print('Entropic distance, diff mu = ', np.sum(np.abs(result_direct - result_full)))
+print('Entropic distance, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
+
+# Test general distance
+# ------------------
+
+# Rake by race and cause using both functions
+I = len(df['cause'].unique())
+J = len(df['race'].unique())
+mu_i = df['all_race_value'].unique()
+mu_j = df['all_cause_value'].unique()
+v_i = np.ones(J)
+v_j = np.ones(I)
+x = df['value'].to_numpy()
+q = np.ones(len(x))
+(A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+(result_direct, lambda_direct) = raking_general_distance(-0.5, x, q, A, y, 1.0, 500, False, True)
+(result_full, lambda_full) = raking_general_distance(-0.5, x, q, A, y, 1.0, 500, False, False)
+
+# Compare values between two raking methods
+print('General distance, diff mu = ', np.sum(np.abs(result_direct - result_full)))
+print('General distance, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
+
+# Test logit raking
+# ------------------
+
+# Rake by race and cause using both functions
+I = len(df['cause'].unique())
+J = len(df['race'].unique())
+mu_i = df['all_race_value'].unique()
+mu_j = df['all_cause_value'].unique()
+v_i = np.ones(J)
+v_j = np.ones(I)
+x = df['value'].to_numpy()
+q = np.ones(len(x))
+l = np.zeros(len(x))
+h = df['pop'].to_numpy()
+(A, y) = get_margin_matrix_vector(v_i, v_j, mu_i, mu_j)
+(result_direct, lambda_direct) = raking_logit(x, l, h, q, A, y, 1.0, 500, False, True)
+(result_full, lambda_full) = raking_logit(x, l, h, q, A, y, 1.0, 500, False, False)
+
+# Compare values between two raking methods
+print('Logit raking, diff mu = ', np.sum(np.abs(result_direct - result_full)))
+print('Logit raking, diff lambda = ', np.sum(np.abs(lambda_direct - lambda_full)))
+

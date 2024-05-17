@@ -9,7 +9,7 @@ from math import floor
 
 def raking_vectorized_IPF(df, agg_vars, constant_vars=[], max_iter=500, return_num_iter=False):
     """
-    Raking using the l2 distance (mu - x)^2 / 2.
+    Raking using the entropic distance with no weights.
     Input:
       df: Pandas dataframe, containing the columns:
           - value = Values to be raked
@@ -22,6 +22,7 @@ def raking_vectorized_IPF(df, agg_vars, constant_vars=[], max_iter=500, return_n
       return_num_iter: Boolean, return the number of iterations.
     Output:
       df: Pandas dataframe with another additional column value_raked
+      iter_eps: integer, number of iterations until convergence
     """
     assert 'value' in df.columns, \
         'The dataframe should contain a column with the values to be raked.'
@@ -73,9 +74,9 @@ def get_margin_matrix_vector(v_i, v_j, mu_i, mu_j):
         'Coefficients in the first dimension and margin values in the second dimension should have the same size.'
     assert len(v_j) == len(mu_i), \
         'Coefficients in the second dimension and margin values in the first dimension should have the same size.'
-#    assert abs(np.sum(mu_i) - np.sum(mu_j)) < 1e-6, \
-#        'Sum of margins over rows and columns should be equal.'
-    print(abs(np.sum(mu_i) - np.sum(mu_j)))
+    assert abs((np.sum(mu_i) - np.sum(mu_j)) / \
+        max(np.max(np.abs(mu_i)), np.max(np.abs(mu_j)))) < 1e-5, \
+        'Sum of margins over rows and columns should be equal.'
 
     I = len(mu_i)
     J = len(mu_j)
@@ -178,6 +179,7 @@ def raking_chi2_distance(x, q, A, y, direct=True):
           if False, we solve directly for lambda and mu
     Output:
       mu: 1D Numpy array, raked values
+      lambda_k: 1D Numpy array, dual
     """
     assert isinstance(x, np.ndarray), \
         'Observations should be a Numpy array.'
@@ -194,6 +196,8 @@ def raking_chi2_distance(x, q, A, y, direct=True):
     assert np.shape(A)[1] == len(x), \
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
+    M = np.shape(A)[0]
+    N = np.shape(A)[1]
     if direct:
         y_hat = np.matmul(A, x)
         Phi = np.matmul(A, np.transpose(A * x * q))
@@ -201,33 +205,33 @@ def raking_chi2_distance(x, q, A, y, direct=True):
         U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
         V = np.transpose(Vh)
         # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        Sdiag = np.diag(S)
+        Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+        Sinv = 1.0 / Sdiag
+        Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+        Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
         lambda_k = np.matmul(Phi_plus, y_hat - y)
         mu = x * (1 - q * np.matmul(np.transpose(A), lambda_k))
     else:
         Phi = np.concatenate((np.concatenate((np.diag(1.0 / (q * x)), \
             np.transpose(A)), axis=1), \
-            np.concatenate((A, np.zeros((len(y), len(y)))), axis=1)), axis=0)
+            np.concatenate((A, np.zeros((M, M))), axis=1)), axis=0)
         b = np.concatenate((1.0 / q, y), axis=0)
         # Compute Moore-Penrose pseudo inverse to solve the system
         U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
         V = np.transpose(Vh)
         # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        Sdiag = np.diag(S)
+        Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+        Sinv = 1.0 / Sdiag
+        Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+        Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
         result = np.matmul(Phi_plus, b)
-        mu = result[0:len(x)]
-        lambda_k = result[len(x):(len(x) + len(y))]
+        mu = result[0:N]
+        lambda_k = result[N:(N + M)]
     return (mu, lambda_k)
 
-def raking_entropic_distance(x, q, A, y, max_iter=500, return_num_iter=False):
+def raking_entropic_distance(x, q, A, y, gamma0=1.0, max_iter=500, return_num_iter=False, direct=True):
     """
     Raking using the entropic distance mu log(mu/x) + x - mu.
     Input:
@@ -235,10 +239,13 @@ def raking_entropic_distance(x, q, A, y, max_iter=500, return_num_iter=False):
       q: 1D Numpy array, weights for the observations
       A: 2D Numpy array, linear constraints
       y: 1D Numpy array, partial sums
+      gamma0: scalar, initial value for line search
       max_iter: Integer, number of iterations for Newton's root finding method
       return_num_iter: boolean, whether we return the number of iterations
     Output:
       mu: 1D Numpy array, raked values
+      lambda_k: 1D Numpy array, dual
+      iter_eps: integer, number of iterations until convergence
     """
     assert isinstance(x, np.ndarray), \
         'Observations should be a Numpy array.'
@@ -255,45 +262,86 @@ def raking_entropic_distance(x, q, A, y, max_iter=500, return_num_iter=False):
     assert np.shape(A)[1] == len(x), \
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
-    y_hat = np.matmul(A, x)
-    lambda_k = np.zeros(np.shape(A)[0])
-    mu = np.copy(x)
-    epsilon = 1.0e6
-    iter_eps = 0
-    while (epsilon > 1.0e-6) & (iter_eps < max_iter):
-        Phi = np.matmul(A, x * (1 - np.exp(- q * \
-            np.matmul(np.transpose(A), lambda_k))))
-        D = np.diag(x * q * np.exp(- q * \
-            np.matmul(np.transpose(A), lambda_k)))
-        J = np.matmul(np.matmul(A, D), np.transpose(A))
-        # Compute Moore-Penrose pseudo inverse to solve the system
-        U, S, Vh = np.linalg.svd(J, full_matrices=True)
-        V = np.transpose(Vh)
-        # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        J_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
-        # Make sure that epsilon is decreasing
-        gamma = 1.0
-        iter_gam = 0
-        lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
-        mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
-        if iter_eps > 0:
-            while np.mean(np.abs(y - np.matmul(A, mu))) > epsilon:
-                gamma = gamma / 2.0
-                iter_gam = iter_gam + 1
-                lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
-                mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
-        epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
-        iter_eps = iter_eps + 1
+    M = np.shape(A)[0]
+    N = np.shape(A)[1]
+    if direct:
+        y_hat = np.matmul(A, x)
+        lambda_k = np.zeros(M)
+        mu = np.copy(x)
+        epsilon = 1.0
+        iter_eps = 0
+        while (epsilon > 1.0e-10) & (iter_eps < max_iter):
+            Phi = np.matmul(A, x * (1 - np.exp(- q * \
+                np.matmul(np.transpose(A), lambda_k))))
+            D = np.diag(x * q * np.exp(- q * \
+                np.matmul(np.transpose(A), lambda_k)))
+            J = np.matmul(np.matmul(A, D), np.transpose(A))
+            # Compute Moore-Penrose pseudo inverse to solve the system
+            U, S, Vh = np.linalg.svd(J, full_matrices=True)
+            V = np.transpose(Vh)
+            # Invert diagonal matrix while dealing with 0 and near 0 values
+            Sdiag = np.diag(S)
+            Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+            Sinv = 1.0 / Sdiag
+            Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+            J_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+            # Make sure that epsilon is decreasing
+            gamma = gamma0
+            iter_gam = 0
+            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
+            mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
+            if iter_eps > 0:
+                while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                      (iter_gam < max_iter):
+                    gamma = gamma / 2.0
+                    iter_gam = iter_gam + 1
+                    lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
+                    mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
+            epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+            iter_eps = iter_eps + 1
+    else:        
+        lambda_k = np.zeros(M)
+        mu = np.copy(x)
+        result = np.concatenate((mu, lambda_k), axis=0)
+        epsilon = 1.0
+        iter_eps = 0
+        while (epsilon > 1.0e-10) & (iter_eps < max_iter):
+            Phi = np.concatenate(( \
+                np.concatenate((np.diag(1.0 / (q * mu)), np.transpose(A)), axis=1), \
+                np.concatenate((A, np.zeros((M, M))), axis=1)), axis=0)
+            b = np.concatenate(( \
+                np.log(mu / x) / q + np.matmul(np.transpose(A), lambda_k), 
+                np.matmul(A, mu) - y), axis=0)
+            # Compute Moore-Penrose pseudo inverse to solve the system
+            U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
+            V = np.transpose(Vh)
+            # Invert diagonal matrix while dealing with 0 and near 0 values
+            Sdiag = np.diag(S)
+            Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+            Sinv = 1.0 / Sdiag
+            Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+            Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+            gamma = gamma0
+            iter_gam = 0
+            result_tmp = result - gamma * np.matmul(Phi_plus, b)
+            mu = result_tmp[0:N]
+            lambda_k = result_tmp[N:(N + M)]
+            if iter_eps > 0:
+                while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                      (iter_gam < max_iter):
+                    gamma = gamma / 2.0
+                    iter_gam = iter_gam + 1
+                    result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                    mu = result_tmp[0:N]
+                    lambda_k = result_tmp[N:(N + M)]
+            epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+            iter_eps = iter_eps + 1
     if return_num_iter:
-        return [mu, iter_eps]
+        return (mu, lambda_k, iter_eps)
     else:
-        return mu
+        return (mu, lambda_k)
 
-def raking_general_distance(alpha, x, q, A, y, max_iter=500, return_num_iter=False):
+def raking_general_distance(alpha, x, q, A, y, gamma0=1.0, max_iter=500, return_num_iter=False, direct=True):
     """
     Raking using the general distance 1/alpha (x/alpha+1 (mu/x)^alpha+1 - mu + cte)
     Input:
@@ -302,9 +350,13 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500, return_num_iter=Fal
       q: 1D Numpy array, weights for the observations
       A: 2D Numpy array, linear constraints
       y: 1D Numpy array, partial sums
+      gamma0: scalar, initial value for line search
       max_iter: Integer, number of iterations for Newton's root finding method
+      return_num_iter: boolean, whether we return the number of iterations
     Output:
       mu: 1D Numpy array, raked values
+      lambda_k: 1D Numpy array, dual
+      iter_eps: integer, number of iterations until convergence
     """
     assert isinstance(x, np.ndarray), \
         'Observations should be a Numpy array.'
@@ -322,57 +374,145 @@ def raking_general_distance(alpha, x, q, A, y, max_iter=500, return_num_iter=Fal
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
     if alpha == 1:
-        mu = raking_chi2_distance(x, q, A, y)
+        (mu, lambda_k) = raking_chi2_distance(x, q, A, y, direct)
+        if return_num_iter:
+            return (mu, lambda_k, 0)
+        else:
+            return (mu, lambda_k)
+    elif alpha == 0:
+        if return_num_iter:
+            (mu, lambda_k, iter_eps) = raking_entropic_distance(x, q, A, y, gamma0, max_iter, return_num_iter, direct)
+            return (mu, lambda_k, iter_eps)
+        else:
+            (mu, lambda_k) = raking_entropic_distance(x, q, A, y, gamma0, max_iter, return_num_iter, direct)
+            return (mu, lambda_k)
     else:
-        y_hat = np.matmul(A, x)
-        lambda_k = np.zeros(np.shape(A)[0])
-        epsilon = 1
-        iter_eps = 0
-        while (epsilon > 1.0e-6) & (iter_eps < max_iter):
-            if alpha == 0:
-                Phi = np.matmul(A, x * (1 - np.exp(- q * \
-                    np.matmul(np.transpose(A), lambda_k))))
-                D = np.diag(x * q * np.exp(- q * \
-                    np.matmul(np.transpose(A), lambda_k)))
-            else:
+        M = np.shape(A)[0]
+        N = np.shape(A)[1]
+        if direct:
+            y_hat = np.matmul(A, x)
+            lambda_k = np.zeros(M)
+            mu = np.copy(x)
+            epsilon = 1.0
+            iter_eps = 0
+            while (epsilon > 1.0e-10) & (iter_eps < max_iter):
                 Phi = np.matmul(A, x * (1 - np.power(1 - alpha * q * \
                     np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)))
                 D = np.diag(x * q * np.power(1 - alpha * q * \
                     np.matmul(np.transpose(A), lambda_k), 1.0 / alpha - 1))
-            J = np.matmul(np.matmul(A, D), np.transpose(A))
-            # Compute Moore-Penrose pseudo inverse to solve the system
-            U, S, Vh = np.linalg.svd(J, full_matrices=True)
-            V = np.transpose(Vh)
-            # Invert diagonal matrix while dealing with 0 and near 0 values
-            S[np.abs(S) <= 1.0e-10] = 1.0e-10
-            Sinv = 1.0 / S
-            Sinv[np.abs(S) <= 1.0e-10] = 0.0
-            Sinv = np.diag(Sinv)
-            J_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
-            # Make sure that the new value of lambda is still valid
-            # This could be a problem only if alpha > 0.5 or alpha < -1
-            if (alpha > 0.5) or (alpha < -1.0):
-                gamma = 1.0
+                J = np.matmul(np.matmul(A, D), np.transpose(A))
+                # Compute Moore-Penrose pseudo inverse to solve the system
+                U, S, Vh = np.linalg.svd(J, full_matrices=True)
+                V = np.transpose(Vh)
+                # Invert diagonal matrix while dealing with 0 and near 0 values
+                Sdiag = np.diag(S)
+                Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+                Sinv = 1.0 / Sdiag
+                Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+                J_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+                # Make sure that epsilon is decreasing
+                gamma = gamma0
                 iter_gam = 0
-                while (np.any(1 - alpha * q * np.matmul(np.transpose(A), \
-                    lambda_k - np.matmul(J_plus, Phi - y_hat + y)) <= 0.0)) & \
-                      (iter_gam < max_iter):
-                    gamma = gamma / 2.0
-                    iter_gam = iter_gam + 1
-            else:
-                gamma = 1.0
-            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
-            if alpha == 0:
-                mu = x * np.exp(- q * np.matmul(np.transpose(A), lambda_k))
-            else:
+                lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
                 mu = x * np.power(1 - alpha * q * \
                     np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
-            epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
-            iter_eps = iter_eps + 1
-    if return_num_iter:
-        return [mu, iter_eps]
-    else:
-        return mu
+                # Make sure that the new value of lambda is still valid
+                # This could be a problem only if alpha > 0.5 or alpha < -1
+                if (alpha > 0.5) or (alpha < -1.0):
+                    if iter_eps > 0:
+                        while (np.any(1 - alpha * q * np.matmul(np.transpose(A), \
+                            lambda_k - np.matmul(J_plus, Phi - y_hat + y)) <= 0.0)) & \
+                              (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
+                            mu = x * np.power(1 - alpha * q * \
+                                np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
+                    else:
+                        while (np.any(1 - alpha * q * np.matmul(np.transpose(A), \
+                            lambda_k - np.matmul(J_plus, Phi - y_hat + y)) <= 0.0)) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
+                            mu = x * np.power(1 - alpha * q * \
+                                np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
+                else:
+                    if iter_eps > 0:
+                        while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y_hat + y)
+                            mu = x * np.power(1 - alpha * q * \
+                                np.matmul(np.transpose(A), lambda_k), 1.0 / alpha)
+                epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+                iter_eps = iter_eps + 1
+        else:
+            lambda_k = np.zeros(M)
+            mu = np.copy(x)
+            result = np.concatenate((mu, lambda_k), axis=0)
+            epsilon = 1.0
+            iter_eps = 0
+            while (epsilon > 1.0e-10) & (iter_eps < max_iter):
+                Phi = np.concatenate(( \
+                    np.concatenate((np.diag(np.power(mu / x, alpha - 1.0) / (q * x)), np.transpose(A)), axis=1), \
+                    np.concatenate((A, np.zeros((M, M))), axis=1)), axis=0)
+                b = np.concatenate(( \
+                    np.power(mu / x, alpha) / (alpha * q) + np.matmul(np.transpose(A), lambda_k), 
+                    np.matmul(A, mu) - y), axis=0)
+                # Compute Moore-Penrose pseudo inverse to solve the system
+                U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
+                V = np.transpose(Vh)
+                # Invert diagonal matrix while dealing with 0 and near 0 values
+                Sdiag = np.diag(S)
+                Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+                Sinv = 1.0 / Sdiag
+                Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+                Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+                gamma = gamma0
+                iter_gam = 0
+                result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                mu = result_tmp[0:N]
+                lambda_k = result_tmp[N:(N + M)]
+                # Make sure that the new value of lambda is still valid
+                # This could be a problem only if alpha > 0.5 or alpha < -1
+                if (alpha > 0.5) or (alpha < -1.0):
+                    if iter_eps > 0:
+                        while (np.any(1 - alpha * q * np.matmul(np.transpose(A), \
+                            lambda_k - np.matmul(J_plus, Phi - y_hat + y)) <= 0.0)) & \
+                              (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                            mu = result_tmp[0:N]
+                            lambda_k = result_tmp[N:(N + M)]
+                    else:
+                        while (np.any(1 - alpha * q * np.matmul(np.transpose(A), \
+                            lambda_k - np.matmul(J_plus, Phi - y_hat + y)) <= 0.0)) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                            mu = result_tmp[0:N]
+                            lambda_k = result_tmp[N:(N + M)]
+                else:
+                    if iter_eps > 0:
+                        while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                              (iter_gam < max_iter):
+                            gamma = gamma / 2.0
+                            iter_gam = iter_gam + 1
+                            result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                            mu = result_tmp[0:N]
+                            lambda_k = result_tmp[N:(N + M)]
+                epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+                iter_eps = iter_eps + 1
+        if return_num_iter:
+            return (mu, lambda_k, iter_eps)
+        else:
+            return (mu, lambda_k)
 
 def raking_l2_distance(x, q, A, y, direct=True):
     """
@@ -386,6 +526,7 @@ def raking_l2_distance(x, q, A, y, direct=True):
           if False, we solve directly for lambda and mu
     Output:
       mu: 1D Numpy array, raked values
+      lambda_k: 1D Numpy array, dual
     """
     assert isinstance(x, np.ndarray), \
         'Observations should be a Numpy array.'
@@ -402,6 +543,8 @@ def raking_l2_distance(x, q, A, y, direct=True):
     assert np.shape(A)[1] == len(x), \
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
+    M = np.shape(A)[0]
+    N = np.shape(A)[1]
     if direct:
         y_hat = np.matmul(A, x)
         Phi = np.matmul(A, np.transpose(q * A))
@@ -409,30 +552,30 @@ def raking_l2_distance(x, q, A, y, direct=True):
         U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
         V = np.transpose(Vh)
         # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        Sdiag = np.diag(S)
+        Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+        Sinv = 1.0 / Sdiag
+        Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+        Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
         lambda_k = np.matmul(Phi_plus, y_hat - y)
         mu = x - np.matmul(np.transpose(q * A), lambda_k)
     else:
         Phi = np.concatenate((np.concatenate((np.diag(1.0 / q), \
             np.transpose(A)), axis=1), \
-            np.concatenate((A, np.zeros((len(y), len(y)))), axis=1)), axis=0)
+            np.concatenate((A, np.zeros((M, M))), axis=1)), axis=0)
         b = np.concatenate((x / q, y), axis=0)
         # Compute Moore-Penrose pseudo inverse to solve the system
         U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
         V = np.transpose(Vh)
         # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+        Sdiag = np.diag(S)
+        Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+        Sinv = 1.0 / Sdiag
+        Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+        Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
         result = np.matmul(Phi_plus, b)
-        mu = result[0:len(x)]
-        lambda_k = result[len(x):(len(x) + len(y))]
+        mu = result[0:N]
+        lambda_k = result[N:(N + M)]
     return (mu, lambda_k)
 
 def raking_vectorized_l2_distance(df, agg_vars, constant_vars=[]):
@@ -481,21 +624,24 @@ def raking_vectorized_l2_distance(df, agg_vars, constant_vars=[]):
     I = len(df[agg_vars[1]].unique())
     J = len(df[agg_vars[0]].unique())
     A = np.zeros((I + J, I * J))
+    K = min(I + J, I * J)
     for i in range(0, I):
         for j in range(0, J):
             A[i, j * I + i] = 1
             A[I + j, j * I + i] = 1
 
-    # Compute Moore-Penrose pseudo inverse to solve the system
     Phi = np.matmul(A, np.transpose(A))
+    # Compute Moore-Penrose pseudo inverse to solve the system
     U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
     V = np.transpose(Vh)
     # Invert diagonal matrix while dealing with 0 and near 0 values
-    S[np.abs(S) <= 1.0e-10] = 1.0e-10
-    Sinv = 1.0 / S
-    Sinv[np.abs(S) <= 1.0e-10] = 0.0
-    Sinv = np.diag(Sinv)
-    Phi_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
+    Sdiag = np.zeros((M, N))
+    Sdiag[:K, :K] = np.diag(S)
+    Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+    Sinv = 1.0 / Sdiag
+    Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+    Sinv = np.transpose(Sinv)
+    Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
     Phi_1 = np.eye(I * J) - np.matmul(np.matmul(np.transpose(A), Phi_plus), A)
     Phi_2 = np.matmul(np.transpose(A), Phi_plus)
 
@@ -513,7 +659,7 @@ def raking_vectorized_l2_distance(df, agg_vars, constant_vars=[]):
     df['l2_distance'] = mu
     return df
 
-def raking_logit(x, l, h, q, A, y, max_iter=500, return_num_iter=False):
+def raking_logit(x, l, h, q, A, y, gamma0=1.0, max_iter=500, return_num_iter=False, direct=True):
     """
     Logit raking ensuring that l < mu < h
     Input:
@@ -523,9 +669,13 @@ def raking_logit(x, l, h, q, A, y, max_iter=500, return_num_iter=False):
       q: 1D Numpy array, weights for the observations
       A: 2D Numpy array, linear constraints
       y: 1D Numpy array, partial sums
+      gamma0: scalar, initial value for line search
       max_iter: Integer, number of iterations for Newton's root finding method
+      return_num_iter: boolean, whether we return the number of iterations
     Output:
       mu: 1D Numpy array, raked values
+      lambda_k: 1D Numpy array, dual
+      iter_eps: integer, number of iterations until convergence
     """
     assert isinstance(x, np.ndarray), \
         'Observations should be a Numpy array.'
@@ -550,36 +700,92 @@ def raking_logit(x, l, h, q, A, y, max_iter=500, return_num_iter=False):
     assert np.shape(A)[1] == len(x), \
         'The number of coefficients for the linear constraints should be equal to the number of observations.'
 
-    lambda_k = np.zeros(np.shape(A)[0])
-    epsilon = 1
-    iter_eps = 0
-    while (epsilon > 1.0e-6) & (iter_eps < max_iter):
-        Phi = np.matmul(A, (l * (h - x) + h * (x - l) * \
-            np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
-            ((h - x) + (x - l) * \
-             np.exp(- q * np.matmul(np.transpose(A), lambda_k))))
-        D = np.diag(- q * ((x - l) * (h - x) * (h - l)) / \
-            np.square((h - x) + (x - l) * \
-            np.exp(- q * np.matmul(np.transpose(A), lambda_k))))    
-        J = np.matmul(np.matmul(A, D), np.transpose(A))
-        # Compute Moore-Penrose pseudo inverse to solve the system
-        U, S, Vh = np.linalg.svd(J, full_matrices=True)
-        V = np.transpose(Vh)
-        # Invert diagonal matrix while dealing with 0 and near 0 values
-        S[np.abs(S) <= 1.0e-10] = 1.0e-10
-        Sinv = 1.0 / S
-        Sinv[np.abs(S) <= 1.0e-10] = 0.0
-        Sinv = np.diag(Sinv)
-        J_plus = np.matmul(np.matmul(V, Sinv), np.transpose(U))
-        lambda_k = lambda_k - np.matmul(J_plus, Phi - y)
-        mu = (l * (h - x) + h * (x - l) * \
-            np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
-            ((h - x) + (x - l) * \
-            np.exp(- q * np.matmul(np.transpose(A), lambda_k)))
-        epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
-        iter_eps = iter_eps + 1
-    if return_num_iter:
-        return [mu, iter_eps]
+    M = np.shape(A)[0]
+    N = np.shape(A)[1]
+    if direct:
+        y_hat = np.matmul(A, x)
+        lambda_k = np.zeros(M)
+        mu = np.copy(x)
+        epsilon = 1.0
+        iter_eps = 0
+        while (epsilon > 1.0e-10) & (iter_eps < max_iter):
+            Phi = np.matmul(A, (l * (h - x) + h * (x - l) * \
+                np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
+                ((h - x) + (x - l) * \
+                np.exp(- q * np.matmul(np.transpose(A), lambda_k))))
+            D = np.diag(- q * ((x - l) * (h - x) * (h - l)) / \
+                np.square((h - x) + (x - l) * \
+                np.exp(- q * np.matmul(np.transpose(A), lambda_k))))    
+            J = np.matmul(np.matmul(A, D), np.transpose(A))
+            # Compute Moore-Penrose pseudo inverse to solve the system
+            U, S, Vh = np.linalg.svd(J, full_matrices=True)
+            V = np.transpose(Vh)
+            # Invert diagonal matrix while dealing with 0 and near 0 values
+            Sdiag = np.diag(S)
+            Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+            Sinv = 1.0 / Sdiag
+            Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+            J_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+            # Make sure that epsilon is decreasing
+            gamma = gamma0
+            iter_gam = 0
+            lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y)
+            mu = (l * (h - x) + h * (x - l) * \
+                np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
+                ((h - x) + (x - l) * \
+                np.exp(- q * np.matmul(np.transpose(A), lambda_k)))
+            if iter_eps > 0:
+                while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                      (iter_gam < max_iter):
+                    gamma = gamma / 2.0
+                    iter_gam = iter_gam + 1
+                    lambda_k = lambda_k - gamma * np.matmul(J_plus, Phi - y)
+                    mu = (l * (h - x) + h * (x - l) * \
+                        np.exp(- q * np.matmul(np.transpose(A), lambda_k))) / \
+                        ((h - x) + (x - l) * \
+                        np.exp(- q * np.matmul(np.transpose(A), lambda_k)))
+            epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+            iter_eps = iter_eps + 1
     else:
-        return mu
+        lambda_k = np.zeros(M)
+        mu = np.copy(x)
+        result = np.concatenate((mu, lambda_k), axis=0)
+        epsilon = 1.0
+        iter_eps = 0
+        while (epsilon > 1.0e-10) & (iter_eps < max_iter):
+            Phi = np.concatenate(( \
+                np.concatenate((np.diag((1.0 / (mu - l) + 1.0 / (h - mu)) / q), np.transpose(A)), axis=1), \
+                np.concatenate((A, np.zeros((M, M))), axis=1)), axis=0)
+            b = np.concatenate(( \
+                (np.log((mu - l) / (x - l)) - np.log((h - mu) / (h - x))) / q + np.matmul(np.transpose(A), lambda_k), 
+                np.matmul(A, mu) - y), axis=0)
+            # Compute Moore-Penrose pseudo inverse to solve the system
+            U, S, Vh = np.linalg.svd(Phi, full_matrices=True)
+            V = np.transpose(Vh)
+            # Invert diagonal matrix while dealing with 0 and near 0 values
+            Sdiag = np.diag(S)
+            Sdiag[np.abs(Sdiag) <= 1.0e-12] = 1.0e-12
+            Sinv = 1.0 / Sdiag
+            Sinv[np.abs(Sdiag) <= 1.0e-12] = 0.0
+            Phi_plus = np.matmul(V, np.matmul(Sinv, np.transpose(U)))
+            gamma = gamma0
+            iter_gam = 0
+            result_tmp = result - gamma * np.matmul(Phi_plus, b)
+            mu = result_tmp[0:N]
+            lambda_k = result_tmp[N:(N + M)]
+            if iter_eps > 0:
+                while (np.mean(np.abs(y - np.matmul(A, mu))) > epsilon) & \
+                      (iter_gam < max_iter):
+                    gamma = gamma / 2.0
+                    iter_gam = iter_gam + 1
+                    result_tmp = result - gamma * np.matmul(Phi_plus, b)
+                    mu = result_tmp[0:N]
+                    lambda_k = result_tmp[N:(N + M)]
+            epsilon = np.mean(np.abs(y - np.matmul(A, mu)))
+            iter_eps = iter_eps + 1
+    if return_num_iter:
+        return (mu, lambda_k, iter_eps)
+    else:
+        return (mu, lambda_k)
+
 
